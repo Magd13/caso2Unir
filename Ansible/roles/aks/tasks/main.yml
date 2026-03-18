@@ -1,0 +1,193 @@
+---
+
+- name: "AKS | Definir configuración"
+  ansible.builtin.set_fact:
+    aks_resource_group: "{{ aks_resource_group | default('rg-casopractico2') }}"
+    aks_cluster_name: "{{ aks_cluster_name | default('aks-casopractico2') }}"
+    app_namespace: "{{ app_namespace | default('azure-vote') }}"
+    kubeconfig_path: "{{ kubeconfig_path | default(playbook_dir + '/kubeconfig') }}"
+
+- name: "AKS | Obtener kubeconfig del clúster"
+  ansible.builtin.command:
+    cmd: >-
+      az aks get-credentials
+      --resource-group {{ aks_resource_group }}
+      --name {{ aks_cluster_name }}
+      --file {{ kubeconfig_path }}
+      --overwrite-existing
+  changed_when: false
+
+- name: "AKS | Crear namespace {{ app_namespace }}"
+  kubernetes.core.k8s:
+    kubeconfig: "{{ kubeconfig_path }}"
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ app_namespace }}"
+
+- name: "AKS | Crear secret de acceso al ACR"
+  kubernetes.core.k8s:
+    kubeconfig: "{{ kubeconfig_path }}"
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: acr-secret
+        namespace: "{{ app_namespace }}"
+      type: kubernetes.io/dockerconfigjson
+      data:
+        .dockerconfigjson: "{{ {'auths': {acr_login_server: {'username': acr_username, 'password': acr_password, 'auth': (acr_username + ':' + acr_password) | b64encode}}} | to_json | b64encode }}"
+
+- name: "AKS | Crear PersistentVolumeClaim para Redis"
+  kubernetes.core.k8s:
+    kubeconfig: "{{ kubeconfig_path }}"
+    state: present
+    definition:
+      apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: redis-pvc
+        namespace: "{{ app_namespace }}"
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+
+- name: "AKS | Desplegar backend Redis"
+  kubernetes.core.k8s:
+    kubeconfig: "{{ kubeconfig_path }}"
+    state: present
+    definition:
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: backend
+        namespace: "{{ app_namespace }}"
+      spec:
+        replicas: 1
+        selector:
+          matchLabels:
+            app: backend
+        template:
+          metadata:
+            labels:
+              app: backend
+          spec:
+            imagePullSecrets:
+              - name: acr-secret
+            containers:
+              - name: backend
+                image: "{{ acr_login_server }}/redis:6.0.8"
+                env:
+                  - name: ALLOW_EMPTY_PASSWORD
+                    value: "yes"
+                ports:
+                  - containerPort: 6379
+                    name: redis
+                resources:
+                  requests:
+                    cpu: "100m"
+                    memory: "128Mi"
+                  limits:
+                    cpu: "250m"
+                    memory: "256Mi"
+                volumeMounts:
+                  - name: redis-data
+                    mountPath: /data
+            volumes:
+              - name: redis-data
+                persistentVolumeClaim:
+                  claimName: redis-pvc
+
+- name: "AKS | Crear Service para el backend Redis"
+  kubernetes.core.k8s:
+    kubeconfig: "{{ kubeconfig_path }}"
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: backend
+        namespace: "{{ app_namespace }}"
+      spec:
+        ports:
+          - port: 6379
+        selector:
+          app: backend
+
+- name: "AKS | Desplegar frontend azure-vote-front"
+  kubernetes.core.k8s:
+    kubeconfig: "{{ kubeconfig_path }}"
+    state: present
+    definition:
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: frontend
+        namespace: "{{ app_namespace }}"
+      spec:
+        replicas: 1
+        selector:
+          matchLabels:
+            app: frontend
+        template:
+          metadata:
+            labels:
+              app: frontend
+          spec:
+            nodeSelector:
+              kubernetes.io/os: linux
+            imagePullSecrets:
+              - name: acr-secret
+            containers:
+              - name: frontend
+                image: "{{ acr_login_server }}/azure-vote-front:v1"
+                ports:
+                  - containerPort: 80
+                env:
+                  - name: REDIS
+                    value: "backend"
+                resources:
+                  requests:
+                    cpu: "100m"
+                    memory: "128Mi"
+                  limits:
+                    cpu: "250m"
+                    memory: "256Mi"
+
+- name: "AKS | Crear Service LoadBalancer para el frontend"
+  kubernetes.core.k8s:
+    kubeconfig: "{{ kubeconfig_path }}"
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: frontend
+        namespace: "{{ app_namespace }}"
+      spec:
+        type: LoadBalancer
+        ports:
+          - port: 80
+        selector:
+          app: frontend
+
+- name: "AKS | Esperar a que el LoadBalancer obtenga IP pública (puede tardar 2 min)"
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ kubeconfig_path }}"
+    kind: Service
+    name: frontend
+    namespace: "{{ app_namespace }}"
+  register: frontend_service
+  until: frontend_service.resources[0].status.loadBalancer.ingress is defined
+  retries: 20
+  delay: 15
+ 
+- name: "AKS | IP pública de la aplicación"
+  ansible.builtin.debug:
+    msg: "✅ Aplicación disponible en: http://{{ frontend_service.resources[0].status.loadBalancer.ingress[0].ip }}"

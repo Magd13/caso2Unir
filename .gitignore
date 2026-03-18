@@ -1,0 +1,22 @@
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+
+# variables
+*.tfvars
+
+# SSH keys
+*.pem
+*.key
+
+# Ansible vault password
+.vault_pass
+
+# Python
+__pycache__/
+
+# OS
+.DS_Store
+
+secrets.yml

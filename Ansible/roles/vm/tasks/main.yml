@@ -1,0 +1,29 @@
+---
+- name: Actualizar paquetes
+  apt:
+    update_cache: yes
+
+- name: Instalar Podman
+  apt:
+    name: podman
+    state: present
+
+- name: Login a ACR desde VM
+  containers.podman.podman_login:
+    registry: "{{ acr_login_server }}"
+    username: "{{ acr_username }}"
+    password: "{{ acr_password }}"
+
+- name: Limpiar contenedor nginx previo
+  containers.podman.podman_container:
+    name: nginx
+    state: absent
+
+- name: Ejecutar nginx con podman
+  containers.podman.podman_container:
+    name: nginx
+    image: "{{ acr_login_server }}/nginx:latest"
+    state: started
+    recreate: true
+    ports:
+      - "80:80"

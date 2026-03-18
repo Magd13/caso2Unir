@@ -1,0 +1,33 @@
+---
+- name: Setup ACR
+  hosts: acr
+  vars_files:
+    - secrets.yml
+  tasks:
+    - name: Ejecutar rol ACR
+      include_role:
+        name: acr
+
+- name: Setup VM
+  hosts: vm
+  become: yes
+  vars_files:
+    - secrets.yml
+  tasks:
+    - name: Ejecutar rol VM
+      include_role:
+        name: vm
+
+- name: Setup AKS
+  hosts: acr
+  vars_files:
+    - secrets.yml
+  vars:
+    ansible_python_interpreter: /home/magdiel/.pyenv/versions/3.10.13/bin/python
+    app_namespace: casopractico2
+    aks_resource_group: rg-casopractico2
+    aks_cluster_name: aks-casopractico2
+  tasks:
+    - name: Ejecutar rol AKS
+      include_role:
+        name: aks

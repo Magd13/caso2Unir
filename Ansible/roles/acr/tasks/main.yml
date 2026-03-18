@@ -1,0 +1,60 @@
+---
+- name: Login a ACR
+  containers.podman.podman_login:
+    registry: "{{ acr_login_server }}"
+    username: "{{ acr_username }}"
+    password: "{{ acr_password }}"
+
+- name: "ACR | Descargar imagen nginx"
+  containers.podman.podman_image:
+    name: docker.io/library/nginx
+    tag: latest
+    pull: true
+- name: "ACR | Descargar imagen redis"
+  containers.podman.podman_image:
+    name: docker.io/jsosa15/redis
+    tag: "6.0.8"
+    pull: true
+- name: "ACR | Descargar imagen azure-vote-front"
+  containers.podman.podman_image:
+    name: docker.io/jsosa15/azure-vote-front
+    tag: v1
+    pull: true
+
+- name: Tag de la imagen nginx para ACR
+  containers.podman.podman_tag:
+    image: "docker.io/library/nginx:latest"
+    target_names:
+      - "{{ acr_login_server }}/nginx:latest"
+
+- name: "ACR | Etiquetar redis con la URL del ACR"
+  containers.podman.podman_tag:
+    image: "docker.io/jsosa15/redis:6.0.8"
+    target_names:
+      - "{{ acr_login_server }}/redis:6.0.8"
+
+- name: "ACR | Etiquetar azure-vote-front con la URL del ACR"
+  containers.podman.podman_tag:
+    image: "docker.io/jsosa15/azure-vote-front:v1"
+    target_names:
+      - "{{ acr_login_server }}/azure-vote-front:v1"
+- name: "ACR | Subir nginx al ACR de Azure"
+  containers.podman.podman_image:
+    name: "{{ acr_login_server }}/nginx:latest"
+    push: true
+    username: "{{ acr_username }}"
+    password: "{{ acr_password }}"
+ 
+- name: "ACR | Subir redis al ACR de Azure"
+  containers.podman.podman_image:
+    name: "{{ acr_login_server }}/redis:6.0.8"
+    push: true
+    username: "{{ acr_username }}"
+    password: "{{ acr_password }}"
+ 
+- name: "ACR | Subir azure-vote-front al ACR de Azure"
+  containers.podman.podman_image:
+    name: "{{ acr_login_server }}/azure-vote-front:v1"
+    push: true
+    username: "{{ acr_username }}"
+    password: "{{ acr_password }}"

@@ -16,6 +16,7 @@
 # Python
 __pycache__/
 
+kubeconfig
 # OS
 .DS_Store
 
